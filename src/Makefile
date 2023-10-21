@@ -280,6 +280,7 @@ core_src_c := \
 	utils/gcd.c \
 	utils/generic_heap.c \
 	utils/hash_functions.c \
+	utils/ibuffer_store.c \
 	utils/index_vectors.c \
 	utils/int_array_hsets.c \
 	utils/int_array_sort2.c \
@@ -305,6 +306,7 @@ core_src_c := \
 	utils/object_stores.c \
 	utils/pair_hash_map.c \
 	utils/pair_hash_map2.c \
+	utils/pbuffer_store.c \
 	utils/pointer_vectors.c \
 	utils/ptr_array_sort2.c \
 	utils/ptr_array_sort.c \

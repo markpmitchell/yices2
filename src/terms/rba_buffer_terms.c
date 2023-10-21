@@ -23,6 +23,7 @@
 #include <assert.h>
 
 #include "terms/rba_buffer_terms.h"
+#include "utils/pbuffer_store.h"
 
 
 /*
@@ -31,7 +32,7 @@
  * - b->ptbl and table->pprods must be equal
  */
 void rba_buffer_add_term(rba_buffer_t *b, term_table_t *table, term_t t) {
-  pprod_t **v;
+  pvector_t *pbuffer;
   polynomial_t *p;
   int32_t i;
 
@@ -50,9 +51,9 @@ void rba_buffer_add_term(rba_buffer_t *b, term_table_t *table, term_t t) {
 
   case ARITH_POLY:
     p = polynomial_for_idx(table, i);
-    v = pprods_for_poly(table, p);
-    rba_buffer_add_monarray(b, p->mono, v);
-    term_table_reset_pbuffer(table);
+    pbuffer = pprods_for_poly(table, p);
+    rba_buffer_add_monarray(b, p->mono, (pprod_t **) pbuffer->data);
+    free_pbuffer(pbuffer);
     break;
 
   default:
@@ -68,7 +69,7 @@ void rba_buffer_add_term(rba_buffer_t *b, term_table_t *table, term_t t) {
  * - b->ptbl and table->pprods must be equal
  */
 void rba_buffer_sub_term(rba_buffer_t *b, term_table_t *table, term_t t) {
-  pprod_t **v;
+  pvector_t *pbuffer;
   polynomial_t *p;
   int32_t i;
 
@@ -87,9 +88,9 @@ void rba_buffer_sub_term(rba_buffer_t *b, term_table_t *table, term_t t) {
 
   case ARITH_POLY:
     p = polynomial_for_idx(table, i);
-    v = pprods_for_poly(table, p);
-    rba_buffer_sub_monarray(b, p->mono, v);
-    term_table_reset_pbuffer(table);
+    pbuffer = pprods_for_poly(table, p);
+    rba_buffer_sub_monarray(b, p->mono, (pprod_t **) pbuffer->data);
+    free_pbuffer(pbuffer);
     break;
 
   default:
@@ -105,7 +106,7 @@ void rba_buffer_sub_term(rba_buffer_t *b, term_table_t *table, term_t t) {
  * - b->ptbl and table->pprods must be equal
  */
 void rba_buffer_mul_term(rba_buffer_t *b, term_table_t *table, term_t t) {
-  pprod_t **v;
+  pvector_t *pbuffer;
   polynomial_t *p;
   int32_t i;
 
@@ -124,9 +125,9 @@ void rba_buffer_mul_term(rba_buffer_t *b, term_table_t *table, term_t t) {
 
   case ARITH_POLY:
     p = polynomial_for_idx(table, i);
-    v = pprods_for_poly(table, p);
-    rba_buffer_mul_monarray(b, p->mono, v);
-    term_table_reset_pbuffer(table);
+    pbuffer = pprods_for_poly(table, p);
+    rba_buffer_mul_monarray(b, p->mono, (pprod_t **) pbuffer->data);
+    free_pbuffer(pbuffer);
     break;
 
   default:
@@ -143,7 +144,7 @@ void rba_buffer_mul_term(rba_buffer_t *b, term_table_t *table, term_t t) {
  */
 void rba_buffer_add_const_times_term(rba_buffer_t *b, term_table_t *table, rational_t *a, term_t t) {
   rational_t q;
-  pprod_t **v;
+  pvector_t *pbuffer;
   polynomial_t *p;
   int32_t i;
 
@@ -166,9 +167,10 @@ void rba_buffer_add_const_times_term(rba_buffer_t *b, term_table_t *table, ratio
 
   case ARITH_POLY:
     p = polynomial_for_idx(table, i);
-    v = pprods_for_poly(table, p);
-    rba_buffer_add_const_times_monarray(b, p->mono, v, a);
-    term_table_reset_pbuffer(table);
+    pbuffer = pprods_for_poly(table, p);
+    rba_buffer_add_const_times_monarray(b, p->mono,
+					(pprod_t **) pbuffer->data, a);
+    free_pbuffer(pbuffer);
     break;
 
   default:
@@ -187,7 +189,7 @@ void rba_buffer_add_const_times_term(rba_buffer_t *b, term_table_t *table, ratio
 void rba_buffer_mul_term_power(rba_buffer_t *b, term_table_t *table, term_t t, uint32_t d) {
   rba_buffer_t aux;
   rational_t q;
-  pprod_t **v;
+  pvector_t *pbuffer;
   polynomial_t *p;
   pprod_t *r;
   int32_t i;
@@ -212,11 +214,12 @@ void rba_buffer_mul_term_power(rba_buffer_t *b, term_table_t *table, term_t t, u
 
   case ARITH_POLY:
     p = polynomial_for_idx(table, i);
-    v = pprods_for_poly(table, p);
+    pbuffer = pprods_for_poly(table, p);
     init_rba_buffer(&aux, b->ptbl);
-    rba_buffer_mul_monarray_power(b, p->mono, v, d, &aux);
+    rba_buffer_mul_monarray_power(b, p->mono, (pprod_t **) pbuffer->data,
+				  d, &aux);
     delete_rba_buffer(&aux);
-    term_table_reset_pbuffer(table);
+    free_pbuffer(pbuffer);
     break;
 
   default:

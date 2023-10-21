@@ -23,6 +23,7 @@
 #ifndef __DL_LISTS_H
 #define __DL_LISTS_H
 
+#include <assert.h>
 #include <stdbool.h>
 
 typedef struct dl_list_s dl_list_t;

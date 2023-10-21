@@ -48,12 +48,15 @@
        return retval;\
   } while(0)
 
+#define YICES_THREAD_LOCAL __thread
 
 #else
 
 #define MT_PROTECT_VOID(LOCK,EXPRESSION)  EXPRESSION
 
 #define MT_PROTECT(TYPE,LOCK,EXPRESSION)  return EXPRESSION
+
+#define YICES_THREAD_LOCAL
 
 #endif
 

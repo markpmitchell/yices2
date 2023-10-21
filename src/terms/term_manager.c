@@ -35,6 +35,7 @@
 #include "utils/int_array_sort.h"
 #include "utils/int_vectors.h"
 #include "utils/memalloc.h"
+#include "utils/pbuffer_store.h"
 
 
 
@@ -1939,13 +1940,15 @@ static term_t add_mono_to_common_part(term_manager_t *manager, polynomial_t *p, 
 static term_t polynomial_div_const(term_manager_t *manager, polynomial_t *p, rational_t *c) {
   term_table_t *tbl;
   rba_buffer_t *b;
+  pvector_t *pbuffer;
 
   tbl = manager->terms;
   b = term_manager_get_arith_buffer(manager);
   reset_rba_buffer(b);
 
-  rba_buffer_add_monarray(b, p->mono, pprods_for_poly(tbl, p));
-  term_table_reset_pbuffer(tbl);
+  pbuffer = pprods_for_poly(tbl, p);
+  rba_buffer_add_monarray(b, p->mono, (pprod_t **) pbuffer->data);
+  free_pbuffer(pbuffer);
   rba_buffer_div_const(b, c);
 
   return arith_buffer_to_term(tbl, b);

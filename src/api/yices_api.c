@@ -100,7 +100,9 @@
 #include "terms/types.h"
 
 #include "utils/dl_lists.h"
+#include "utils/ibuffer_store.h"
 #include "utils/int_array_sort.h"
+#include "utils/pbuffer_store.h"
 #include "utils/refcount_strings.h"
 #include "utils/sparse_arrays.h"
 #include "utils/string_utils.h"
@@ -1045,6 +1047,10 @@ static void clear_globals(yices_globals_t *glob) {
 
 }
 
+EXPORTED void yices_init_thread(void) {
+  init_ibuffer_store();
+  init_pbuffer_store();
+}
 
 /*
  * Initialize all global objects
@@ -1091,13 +1097,20 @@ EXPORTED void yices_init(void) {
   root_terms = NULL;
   root_types = NULL;
 
+  yices_init_thread();
 }
 
+EXPORTED void yices_exit_thread(void) {
+  delete_pbuffer_store();
+  delete_ibuffer_store();
+}
 
 /*
  * Cleanup: delete all tables and internal data structures
  */
 EXPORTED void yices_exit(void) {
+  yices_exit_thread();
+  
   // registries
   if (root_terms != NULL) {
     assert(root_terms == &the_root_terms);

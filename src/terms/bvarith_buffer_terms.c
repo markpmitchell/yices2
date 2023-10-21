@@ -24,6 +24,7 @@
 
 #include "terms/bvarith_buffer_terms.h"
 #include "terms/term_utils.h"
+#include "utils/pbuffer_store.h"
 
 
 /*
@@ -88,7 +89,7 @@ void bvarith_buffer_set_term(bvarith_buffer_t *b, term_table_t *table, term_t t)
  * - b->ptbl must be the same as table->pprods
  */
 void bvarith_buffer_add_term(bvarith_buffer_t *b, term_table_t *table, term_t t) {
-  pprod_t **v;
+  pvector_t *pbuffer;
   bvpoly_t *p;
   int32_t i;
   term_t t0;
@@ -110,9 +111,9 @@ void bvarith_buffer_add_term(bvarith_buffer_t *b, term_table_t *table, term_t t)
 
   case BV_POLY:
     p = bvpoly_for_idx(table, i);
-    v = pprods_for_bvpoly(table, p);
-    bvarith_buffer_add_bvpoly(b, p, v);
-    term_table_reset_pbuffer(table);
+    pbuffer = pprods_for_bvpoly(table, p);
+    bvarith_buffer_add_bvpoly(b, p, (pprod_t **) pbuffer->data);
+    free_pbuffer(pbuffer);
     break;
 
   case BV_ARRAY:
@@ -142,7 +143,7 @@ void bvarith_buffer_add_term(bvarith_buffer_t *b, term_table_t *table, term_t t)
  * - b->ptbl must be the same as table->pprods
  */
 void bvarith_buffer_sub_term(bvarith_buffer_t *b, term_table_t *table, term_t t) {
-  pprod_t **v;
+  pvector_t *pbuffer;
   bvpoly_t *p;
   int32_t i;
   term_t t0;
@@ -164,9 +165,9 @@ void bvarith_buffer_sub_term(bvarith_buffer_t *b, term_table_t *table, term_t t)
 
   case BV_POLY:
     p = bvpoly_for_idx(table, i);
-    v = pprods_for_bvpoly(table, p);
-    bvarith_buffer_sub_bvpoly(b, p, v);
-    term_table_reset_pbuffer(table);
+    pbuffer = pprods_for_bvpoly(table, p);
+    bvarith_buffer_sub_bvpoly(b, p, (pprod_t **) pbuffer->data);
+    free_pbuffer(pbuffer);
     break;
 
   case BV_ARRAY:
@@ -198,7 +199,7 @@ void bvarith_buffer_sub_term(bvarith_buffer_t *b, term_table_t *table, term_t t)
  */
 void bvarith_buffer_mul_term(bvarith_buffer_t *b, term_table_t *table, term_t t) {
   bvarith_buffer_t aux;
-  pprod_t **v;
+  pvector_t *pbuffer;
   bvpoly_t *p;
   int32_t i;
 
@@ -218,9 +219,9 @@ void bvarith_buffer_mul_term(bvarith_buffer_t *b, term_table_t *table, term_t t)
 
   case BV_POLY:
     p = bvpoly_for_idx(table, i);
-    v = pprods_for_bvpoly(table, p);
-    bvarith_buffer_mul_bvpoly(b, p, v);
-    term_table_reset_pbuffer(table);
+    pbuffer = pprods_for_bvpoly(table, p);
+    bvarith_buffer_mul_bvpoly(b, p, (pprod_t **) pbuffer->data);
+    free_pbuffer(pbuffer);
     break;
 
   case BV_ARRAY:
@@ -248,7 +249,7 @@ void bvarith_buffer_mul_term(bvarith_buffer_t *b, term_table_t *table, term_t t)
  */
 void bvarith_buffer_add_const_times_term(bvarith_buffer_t *b, term_table_t *table, uint32_t *a, term_t t) {
   bvconstant_t c;
-  pprod_t **v;
+  pvector_t *pbuffer;
   bvpoly_t *p;
   int32_t i;
   term_t t0;
@@ -274,9 +275,10 @@ void bvarith_buffer_add_const_times_term(bvarith_buffer_t *b, term_table_t *tabl
 
   case BV_POLY:
     p = bvpoly_for_idx(table, i);
-    v = pprods_for_bvpoly(table, p);
-    bvarith_buffer_add_const_times_bvpoly(b, p, v, a);
-    term_table_reset_pbuffer(table);
+    pbuffer = pprods_for_bvpoly(table, p);
+    bvarith_buffer_add_const_times_bvpoly(b, p,
+					  (pprod_t **) pbuffer->data, a);
+    free_pbuffer(pbuffer);
     break;
 
   case BV_ARRAY:
@@ -313,7 +315,7 @@ void bvarith_buffer_mul_term_power(bvarith_buffer_t *b, term_table_t *table, ter
   bvarith_buffer_t aux, aux2;
   bvconstant_t c;
   bvpoly_t *p;
-  pprod_t **v;
+  pvector_t *pbuffer;
   pprod_t *r;
   int32_t i;
 
@@ -338,11 +340,12 @@ void bvarith_buffer_mul_term_power(bvarith_buffer_t *b, term_table_t *table, ter
 
   case BV_POLY:
     p = bvpoly_for_idx(table, i);
-    v = pprods_for_bvpoly(table, p);
+    pbuffer = pprods_for_bvpoly(table, p);
     init_aux_buffer(&aux, b);
-    bvarith_buffer_mul_bvpoly_power(b, p, v, d, &aux);
+    bvarith_buffer_mul_bvpoly_power(b, p, (pprod_t **) pbuffer->data,
+				    d, &aux);
     delete_bvarith_buffer(&aux);
-    term_table_reset_pbuffer(table);
+    free_pbuffer(pbuffer);
     break;
 
   case BV_ARRAY:

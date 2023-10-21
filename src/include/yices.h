@@ -140,6 +140,11 @@ __YICES_DLLSPEC__ extern int32_t yices_is_thread_safe(void);
  */
 __YICES_DLLSPEC__ extern void yices_init(void);
 
+/*
+ * Parallel solvers must call this function once from every thread
+ * other than the thread which calls yices_init.
+ */
+__YICES_DLLSPEC__ extern void yices_init_thread(void);
 
 /*
  * Delete all internal data structures and objects
@@ -147,6 +152,11 @@ __YICES_DLLSPEC__ extern void yices_init(void);
  */
 __YICES_DLLSPEC__ extern void yices_exit(void);
 
+/*
+ * Parallel solvers must call this function from every thread other
+ * than the thread which calls yices_init.
+ */
+__YICES_DLLSPEC__ extern void yices_exit_thread(void);
 
 /*
  * Full reset

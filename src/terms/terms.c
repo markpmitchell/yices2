@@ -93,9 +93,11 @@
 #include "terms/bv64_constants.h"
 #include "terms/terms.h"
 #include "utils/hash_functions.h"
+#include "utils/ibuffer_store.h"
 #include "utils/memalloc.h"
+#include "utils/pbuffer_store.h"
+#include "utils/ptr_queues.h"
 #include "utils/refcount_strings.h"
-
 
 /*
  * Finalizer for term names in the symbol table.
@@ -141,17 +143,13 @@ static void term_table_init(term_table_t *table, uint32_t n, type_table_t *ttbl,
   table->finalize = default_special_finalizer;
 
   // initialize tables with default initial size
-  init_int_htbl(&table->htbl, 0);
+  init_ts_int_htbl(&table->htbl, 0);
   init_stbl(&table->stbl, 0);
   init_ptr_hmap(&table->ntbl, 0);
   init_int_hmap(&table->utbl, 0);
 
   // attach the name finalizer to stbl
   stbl_set_finalizer(&table->stbl, term_name_finalizer);
-
-  // buffers
-  init_ivector(&table->ibuffer, 20);
-  init_pvector(&table->pbuffer, 20);
 
 }
 
@@ -1706,7 +1704,7 @@ static void delete_term(term_table_t *table, int32_t i) {
   }
 
   // Remove the record [h, i] from the hash-consing table
-  int_htbl_erase_record(&table->htbl, h, i);
+  ts_int_htbl_erase_record(&table->htbl, h, i);
 
   // Put i in the free list
  recycle:
@@ -1884,11 +1882,8 @@ void delete_term_table(term_table_t *table) {
   delete_name_table(&table->ntbl);
   delete_term_descriptors(table);
   delete_int_hmap(&table->utbl);
-  delete_int_htbl(&table->htbl);
+  delete_ts_int_htbl(&table->htbl);
   delete_stbl(&table->stbl);
-
-  delete_ivector(&table->ibuffer);
-  delete_pvector(&table->pbuffer);
 
   safe_free(table->kind);
   safe_free(table->type);
@@ -1932,11 +1927,8 @@ void reset_term_table(term_table_t *table) {
   reset_name_table(&table->ntbl);
   delete_term_descriptors(table);
   int_hmap_reset(&table->utbl);
-  reset_int_htbl(&table->htbl);
+  reset_ts_int_htbl(&table->htbl);
   reset_stbl(&table->stbl);
-
-  ivector_reset(&table->ibuffer);
-  pvector_reset(&table->pbuffer);
 
   table->nelems = 0;
   table->free_idx = -1;
@@ -1957,17 +1949,17 @@ static type_t type_of_tuple(term_table_t *table, uint32_t n, const term_t arg[])
   int32_t *v;
   type_t tau;
   uint32_t j;
+  ivector_t *ibuffer;
 
   // build the type using ibuffer
-  assert(table->ibuffer.size == 0);
-  resize_ivector(&table->ibuffer, n);
-  v = table->ibuffer.data;
+  ibuffer = alloc_ibuffer(n);
+  v = ibuffer->data;
   for (j=0; j<n; j++) {
     v[j] = term_type(table, arg[j]);
   }
   tau = tuple_type(table->types, n, v);
 
-  ivector_reset(&table->ibuffer);
+  free_ibuffer(ibuffer);
 
   return tau;
 }
@@ -1979,18 +1971,18 @@ static type_t type_of_lambda(term_table_t *table, uint32_t n, const term_t *v, t
   int32_t *dom;
   type_t tau;
   uint32_t j;
+  ivector_t *ibuffer;
 
   // use ibuffer;
-  assert(table->ibuffer.size == 0);
-  resize_ivector(&table->ibuffer, n);
-  dom = table->ibuffer.data;
+  ibuffer = alloc_ibuffer(n);
+  dom = ibuffer->data;
   for (j=0; j<n; j++) {
     dom[j] = term_type(table, v[j]);
   }
   tau = term_type(table, t); // range type
   tau = function_type(table->types, tau, n, dom);
 
-  ivector_reset(&table->ibuffer);
+  free_ibuffer(ibuffer);
 
   return tau;
 }
@@ -2048,7 +2040,7 @@ term_t constant_term(term_table_t *table, type_t tau, int32_t index) {
   integer_hobj.tau = tau;
   integer_hobj.id = index;
 
-  i = int_htbl_get_obj(&table->htbl, &integer_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &integer_hobj.m);
 
   return pos_term(i);
 }
@@ -2136,7 +2128,7 @@ term_t ite_term(term_table_t *table, type_t tau, term_t cond, term_t left, term_
     special_hobj.arity = 3;
     special_hobj.arg = aux;
 
-    i = int_htbl_get_obj(&table->htbl, &special_hobj.m);
+    i = ts_int_htbl_get_obj(&table->htbl, &special_hobj.m);
 
   } else {
     composite_term_hobj_t composite_hobj;
@@ -2150,7 +2142,7 @@ term_t ite_term(term_table_t *table, type_t tau, term_t cond, term_t left, term_
     composite_hobj.arity = 3;
     composite_hobj.arg = aux;
 
-    i = int_htbl_get_obj(&table->htbl, &composite_hobj.m);
+    i = ts_int_htbl_get_obj(&table->htbl, &composite_hobj.m);
   }
 
   return pos_term(i);
@@ -2176,7 +2168,7 @@ term_t app_term(term_table_t *table, term_t fun, uint32_t n, const term_t arg[])
   app_hobj.n = n;
   app_hobj.arg = arg;
 
-  i = int_htbl_get_obj(&table->htbl, &app_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &app_hobj.m);
 
   return pos_term(i);
 }
@@ -2204,7 +2196,7 @@ term_t update_term(term_table_t *table, term_t fun, uint32_t n, const term_t arg
   update_hobj.n = n;
   update_hobj.arg = arg;
 
-  i = int_htbl_get_obj(&table->htbl, &update_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &update_hobj.m);
 
   return pos_term(i);
 }
@@ -2226,7 +2218,7 @@ term_t tuple_term(term_table_t *table, uint32_t n, const term_t arg[]) {
   composite_hobj.arity = n;
   composite_hobj.arg = arg;
 
-  i = int_htbl_get_obj(&table->htbl, &composite_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &composite_hobj.m);
 
   return pos_term(i);
 }
@@ -2251,7 +2243,7 @@ term_t select_term(term_table_t *table, uint32_t index, term_t tuple) {
   select_hobj.k = index;
   select_hobj.arg = tuple;
 
-  i = int_htbl_get_obj(&table->htbl, &select_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &select_hobj.m);
 
   return pos_term(i);
 }
@@ -2277,7 +2269,7 @@ static term_t binary_term(term_table_t *table, term_kind_t tag, type_t tau, term
   composite_hobj.arity = 2;
   composite_hobj.arg = aux;
 
-  i = int_htbl_get_obj(&table->htbl, &composite_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &composite_hobj.m);
 
   return pos_term(i);
 }
@@ -2298,7 +2290,7 @@ static term_t unary_term(term_table_t *table, term_kind_t tag, type_t tau, term_
   integer_hobj.tau = tau;
   integer_hobj.id = t;
 
-  i = int_htbl_get_obj(&table->htbl, &integer_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &integer_hobj.m);
 
   return pos_term(i);
 }
@@ -2328,7 +2320,7 @@ term_t distinct_term(term_table_t *table, uint32_t n, const term_t arg[]) {
   composite_hobj.arity = n;
   composite_hobj.arg = arg;
 
-  i = int_htbl_get_obj(&table->htbl, &composite_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &composite_hobj.m);
 
   return pos_term(i);
 }
@@ -2349,7 +2341,7 @@ term_t forall_term(term_table_t *table, uint32_t n, const term_t var[], term_t b
   forall_hobj.n = n;
   forall_hobj.v = var;
 
-  i = int_htbl_get_obj(&table->htbl, &forall_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &forall_hobj.m);
 
   return pos_term(i);
 }
@@ -2371,7 +2363,7 @@ term_t lambda_term(term_table_t *table, uint32_t n, const term_t var[], term_t b
   lambda_hobj.n = n;
   lambda_hobj.v = var;
 
-  i = int_htbl_get_obj(&table->htbl, &lambda_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &lambda_hobj.m);
 
   return pos_term(i);
 }
@@ -2393,7 +2385,7 @@ term_t or_term(term_table_t *table, uint32_t n, const term_t arg[]) {
   composite_hobj.arity = n;
   composite_hobj.arg = arg;
 
-  i = int_htbl_get_obj(&table->htbl, &composite_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &composite_hobj.m);
 
   return pos_term(i);
 }
@@ -2415,7 +2407,7 @@ term_t xor_term(term_table_t *table, uint32_t n, const term_t arg[]) {
   composite_hobj.arity = n;
   composite_hobj.arg = arg;
 
-  i = int_htbl_get_obj(&table->htbl, &composite_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &composite_hobj.m);
 
   return pos_term(i);
 }
@@ -2437,7 +2429,7 @@ term_t bit_term(term_table_t *table, uint32_t k, term_t bv) {
   select_hobj.k = k;
   select_hobj.arg = bv;
 
-  i = int_htbl_get_obj(&table->htbl, &select_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &select_hobj.m);
 
   return pos_term(i);
 }
@@ -2466,7 +2458,7 @@ term_t pprod_term(term_table_t *table, pprod_t *r) {
   pprod_hobj.tau = type_of_pprod(table, r);
   pprod_hobj.r = r;
 
-  i = int_htbl_get_obj(&table->htbl, &pprod_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &pprod_hobj.m);
 
   return pos_term(i);
 }
@@ -2493,7 +2485,7 @@ term_t arith_constant(term_table_t *table, rational_t *a) {
   rational_hobj.tau = tau;
   rational_hobj.a = a;
 
-  i = int_htbl_get_obj(&table->htbl, &rational_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &rational_hobj.m);
 
   return pos_term(i);
 }
@@ -2594,7 +2586,7 @@ term_t arith_root_atom(term_table_t *table, uint32_t k, term_t x, term_t p, root
   root_atom_hobj.p = p;
   root_atom_hobj.r = r;
 
-  i = int_htbl_get_obj(&table->htbl, &root_atom_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &root_atom_hobj.m);
 
   return pos_term(i);
 }
@@ -2625,7 +2617,7 @@ term_t bv64_constant(term_table_t *table, uint32_t n, uint64_t bv) {
   bvconst64_hobj.bitsize = n;
   bvconst64_hobj.v = bv;
 
-  i = int_htbl_get_obj(&table->htbl, &bvconst64_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &bvconst64_hobj.m);
 
   return pos_term(i);
 }
@@ -2650,7 +2642,7 @@ term_t bvconst_term(term_table_t *table, uint32_t n, const uint32_t *bv) {
   bvconst_hobj.bitsize = n;
   bvconst_hobj.v = bv;
 
-  i = int_htbl_get_obj(&table->htbl, &bvconst_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &bvconst_hobj.m);
 
   return pos_term(i);
 }
@@ -2674,7 +2666,7 @@ term_t bvarray_term(term_table_t *table, uint32_t n, const term_t arg[]) {
   composite_hobj.arity = n;
   composite_hobj.arg = arg;
 
-  i = int_htbl_get_obj(&table->htbl, &composite_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &composite_hobj.m);
 
   return pos_term(i);
 }
@@ -2862,6 +2854,7 @@ term_t arith_poly(term_table_t *table, rba_buffer_t *b) {
   bool all_int;
   uint32_t j, n;
   poly_term_hobj_t poly_hobj;
+  ivector_t *ibuffer;
 
   assert(b->ptbl == table->pprods);
 
@@ -2872,10 +2865,9 @@ term_t arith_poly(term_table_t *table, rba_buffer_t *b) {
    * store the result in ibuffer.
    * also check whether all coefficients are integer.
    */
-  assert(table->ibuffer.size == 0);
+  ibuffer = alloc_ibuffer(n + 1);
 
-  resize_ivector(&table->ibuffer, n + 1);
-  v = table->ibuffer.data;
+  v = ibuffer->data;
   all_int = true;
   j = convert_rba_tree(table, b, v, &all_int, 0, b->root);
   assert(j == n);
@@ -2896,10 +2888,10 @@ term_t arith_poly(term_table_t *table, rba_buffer_t *b) {
   poly_hobj.b = b;
   poly_hobj.v = v;
 
-  i = int_htbl_get_obj(&table->htbl, &poly_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &poly_hobj.m);
 
   // cleanup ibuffer
-  ivector_reset(&table->ibuffer);
+  free_ibuffer(ibuffer);
 
   return pos_term(i);
 }
@@ -2921,6 +2913,7 @@ term_t bv64_poly(term_table_t *table, bvarith64_buffer_t *b) {
   int32_t i;
   uint32_t j, n;
   bvpoly64_term_hobj_t bvpoly64_hobj;
+  ivector_t *ibuffer;
 
   assert(b->ptbl == table->pprods);
 
@@ -2930,9 +2923,8 @@ term_t bv64_poly(term_table_t *table, bvarith64_buffer_t *b) {
    * Convert the power products.
    * Store the results in ibuffer.
    */
-  assert(table->ibuffer.size == 0);
-  resize_ivector(&table->ibuffer, n + 1);
-  v = table->ibuffer.data;
+  ibuffer = alloc_ibuffer(n + 1);
+  v = ibuffer->data;
   q = b->list;
   for (j=0; j<n; j++) {
     assert(q->next != NULL);
@@ -2952,10 +2944,10 @@ term_t bv64_poly(term_table_t *table, bvarith64_buffer_t *b) {
   bvpoly64_hobj.b = b;
   bvpoly64_hobj.v = v;
 
-  i = int_htbl_get_obj(&table->htbl, &bvpoly64_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &bvpoly64_hobj.m);
 
   // cleanup ibuffer
-  ivector_reset(&table->ibuffer);
+  free_ibuffer(ibuffer);
 
   return pos_term(i);
 }
@@ -2967,7 +2959,8 @@ term_t bv_poly(term_table_t *table, bvarith_buffer_t *b) {
   int32_t i;
   uint32_t j, n;
   bvpoly_term_hobj_t bvpoly_hobj;
-
+  ivector_t *ibuffer;
+  
   assert(b->ptbl == table->pprods);
 
   n = b->nterms;
@@ -2976,9 +2969,8 @@ term_t bv_poly(term_table_t *table, bvarith_buffer_t *b) {
    * Convert the power products.
    * Store the results in ibuffer.
    */
-  assert(table->ibuffer.size == 0);
-  resize_ivector(&table->ibuffer, n+1);
-  v = table->ibuffer.data;
+  ibuffer = alloc_ibuffer(n + 1);
+  v = ibuffer->data;
   q = b->list;
   for (j=0; j<n; j++) {
     assert(q->next != NULL);
@@ -2998,10 +2990,10 @@ term_t bv_poly(term_table_t *table, bvarith_buffer_t *b) {
   bvpoly_hobj.b = b;
   bvpoly_hobj.v = v;
 
-  i = int_htbl_get_obj(&table->htbl, &bvpoly_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &bvpoly_hobj.m);
 
   // cleanup ibuffer
-  ivector_reset(&table->ibuffer);
+  free_ibuffer(ibuffer);
 
   return pos_term(i);
 }
@@ -3025,7 +3017,7 @@ term_t bv_poly_from_buffer(term_table_t *table, bvpoly_buffer_t *b) {
   bvbuffer_hobj.tau = bv_type(table->types, b->bitsize);
   bvbuffer_hobj.b = b;
 
-  i = int_htbl_get_obj(&table->htbl, &bvbuffer_hobj.m);
+  i = ts_int_htbl_get_obj(&table->htbl, &bvbuffer_hobj.m);
 
   return pos_term(i);
 }
@@ -3169,13 +3161,14 @@ bool is_linear_poly(const term_table_t *table, term_t t) {
  * - store the result in table->pbuffer
  * - return the array of power products
  */
-pprod_t **pprods_for_bvpoly64(term_table_t *table, const bvpoly64_t *p) {
+pvector_t *pprods_for_bvpoly64(term_table_t *table, const bvpoly64_t *p) {
   uint32_t i, n;
   void **v;
+  pvector_t *pbuffer;
 
   n = p->nterms;
-  resize_pvector(&table->pbuffer, n+1);
-  v = table->pbuffer.data;
+  pbuffer = alloc_pbuffer(n+1);
+  v = pbuffer->data;
   i = 0;
 
   // the constant is first in p
@@ -3193,7 +3186,7 @@ pprod_t **pprods_for_bvpoly64(term_table_t *table, const bvpoly64_t *p) {
   assert(p->mono[i].var == max_idx);
   v[i] = end_pp;
 
-  return (pprod_t **) v;
+  return pbuffer;
 }
 
 
@@ -3202,13 +3195,14 @@ pprod_t **pprods_for_bvpoly64(term_table_t *table, const bvpoly64_t *p) {
  * - store the result in table->pbuffer
  * - return the array of power products
  */
-pprod_t **pprods_for_bvpoly(term_table_t *table, const bvpoly_t *p) {
+pvector_t *pprods_for_bvpoly(term_table_t *table, const bvpoly_t *p) {
   uint32_t i, n;
   void **v;
+  pvector_t *pbuffer;
 
   n = p->nterms;
-  resize_pvector(&table->pbuffer, n+1);
-  v = table->pbuffer.data;
+  pbuffer = alloc_pbuffer(n+1);
+  v = pbuffer->data;
   i = 0;
 
   // the constant is first in p
@@ -3226,7 +3220,7 @@ pprod_t **pprods_for_bvpoly(term_table_t *table, const bvpoly_t *p) {
   assert(p->mono[i].var == max_idx);
   v[i] = end_pp;
 
-  return (pprod_t **) v;
+  return pbuffer;
 }
 
 
@@ -3248,13 +3242,14 @@ bool good_term(const term_table_t *table, term_t t) {
  * - store the result in table->pbuffer
  * - return the array of power products
  */
-pprod_t **pprods_for_poly(term_table_t *table, const polynomial_t *p) {
+pvector_t *pprods_for_poly(term_table_t *table, const polynomial_t *p) {
   uint32_t i, n;
   void **v;
+  pvector_t *pbuffer;
 
   n = p->nterms;
-  resize_pvector(&table->pbuffer, n+1);
-  v = table->pbuffer.data;
+  pbuffer = alloc_pbuffer(n+1);
+  v = pbuffer->data;
   i = 0;
 
   // the constant is first in p
@@ -3272,7 +3267,7 @@ pprod_t **pprods_for_poly(term_table_t *table, const polynomial_t *p) {
   assert(p->mono[i].var == max_idx);
   v[i] = end_pp;
 
-  return (pprod_t **) v;
+  return pbuffer;
 }
 
 
@@ -3406,7 +3401,7 @@ term_t find_constant_term(term_table_t *table, type_t tau, int32_t index) {
   integer_hobj.tau = tau;
   integer_hobj.id = index;
 
-  i = int_htbl_find_obj(&table->htbl, &integer_hobj.m);
+  i = ts_int_htbl_find_obj(&table->htbl, &integer_hobj.m);
   if (i >= 0) {
     i = pos_term(i);
   }

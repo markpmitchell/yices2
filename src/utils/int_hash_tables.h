@@ -33,6 +33,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "mt/yices_locks.h"
 
 /*
  * Hash table = array of records
@@ -151,5 +152,55 @@ extern int32_t int_htbl_find_obj(const int_htbl_t *table, const int_hobj_t *o);
  */
 extern int32_t int_htbl_get_obj(int_htbl_t *table, const int_hobj_t *o);
 
+/*
+ * Thread-safe hash table.
+ */
+
+typedef struct ts_int_htbl_s {
+  int_htbl_t htbl;
+#ifdef THREAD_SAFE
+  /* When locked, the table may not be modified. */
+  yices_lock_t write_lock;
+#endif
+} ts_int_htbl_t;
+
+/*
+ * Initialize: empty table of size n (n must be a power of 2)
+ * If n = 0, the default initial size is used = 64.
+ */
+extern void init_ts_int_htbl(ts_int_htbl_t *table, uint32_t n);
+
+/*
+ * Delete: free the allocated memory
+ */
+extern void delete_ts_int_htbl(ts_int_htbl_t *table);
+
+/*
+ * Reset: empty the table
+ */
+extern void reset_ts_int_htbl(ts_int_htbl_t *table);
+
+/*
+ * Delete record <k, v>. No effect if <k, v> is not present in table.
+ */
+extern void ts_int_htbl_erase_record(ts_int_htbl_t *table, uint32_t k,
+				     int32_t v);
+
+/*
+ * Get index of object equal to o if present in the hash table, return
+ * NULL_VALUE (-1) if no such object is present. If the object is not
+ * present when this function is called, but is added by another
+ * thread before this function returns, the return value may be
+ * NULL_VALUE or the index of the newly added object.
+ */
+extern int32_t ts_int_htbl_find_obj(ts_int_htbl_t *table,
+				    const int_hobj_t *o);
+
+/*
+ * Get index of object equal to o if present, otherwise, build o and return
+ * the new index.
+ */
+extern int32_t ts_int_htbl_get_obj(ts_int_htbl_t *table,
+				   const int_hobj_t *o);
 
 #endif /* __INT_HASH_TABLES */

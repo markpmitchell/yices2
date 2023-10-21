@@ -183,6 +183,7 @@
 #include <stdbool.h>
 #include <assert.h>
 
+#include "mt/yices_locks.h"
 #include "terms/balanced_arith_buffers.h"
 #include "terms/bvarith64_buffers.h"
 #include "terms/bvarith_buffers.h"
@@ -501,13 +502,10 @@ typedef struct term_table_s {
   pprod_table_t *pprods;
   special_finalizer_t finalize;
 
-  int_htbl_t htbl;
+  ts_int_htbl_t htbl;
   stbl_t stbl;
   ptr_hmap_t ntbl;
   int_hmap_t utbl;
-
-  ivector_t ibuffer;
-  pvector_t pbuffer;
 } term_table_t;
 
 
@@ -1092,7 +1090,7 @@ extern bool is_linear_poly(const term_table_t *table, term_t t);
  * - pbuffer->data[i] = pprod_for_term(table, p->mono[i].var)
  * - the last element of buffer->data is the end marker end_pp.
  */
-extern pprod_t **pprods_for_poly(term_table_t *table, const polynomial_t *p);
+extern pvector_t *pprods_for_poly(term_table_t *table, const polynomial_t *p);
 
 
 /*
@@ -1102,7 +1100,7 @@ extern pprod_t **pprods_for_poly(term_table_t *table, const polynomial_t *p);
  * - the result is stored in table's internal pbuffer.
  * - the function returns pbuffer->data.
  */
-extern pprod_t **pprods_for_bvpoly64(term_table_t *table, const bvpoly64_t *p);
+extern pvector_t *pprods_for_bvpoly64(term_table_t *table, const bvpoly64_t *p);
 
 
 /*
@@ -1112,15 +1110,7 @@ extern pprod_t **pprods_for_bvpoly64(term_table_t *table, const bvpoly64_t *p);
  * - the result is stored in table's internal pbuffer.
  * - the function returns pbuffer->data.
  */
-extern pprod_t **pprods_for_bvpoly(term_table_t *table, const bvpoly_t *p);
-
-
-/*
- * Reset the internal pbuffer
- */
-static inline void term_table_reset_pbuffer(term_table_t *table) {
-  pvector_reset(&table->pbuffer);
-}
+extern pvector_t *pprods_for_bvpoly(term_table_t *table, const bvpoly_t *p);
 
 
 

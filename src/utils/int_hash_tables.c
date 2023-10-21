@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <assert.h>
 
+#include "mt/thread_macros.h"
 #include "utils/int_hash_tables.h"
 #include "utils/memalloc.h"
 
@@ -351,3 +352,52 @@ int32_t int_htbl_get_obj(int_htbl_t *table, const int_hobj_t *o) {
 }
 
 
+void init_ts_int_htbl(ts_int_htbl_t *table, uint32_t n) {
+  init_int_htbl(&table->htbl, n);
+#ifdef THREAD_SAFE
+  create_yices_lock(&table->write_lock);
+#endif
+}
+
+
+void delete_ts_int_htbl(ts_int_htbl_t *table) {
+#ifdef THREAD_SAFE
+  destroy_yices_lock(&table->write_lock);
+#endif
+  delete_int_htbl(&table->htbl);
+}
+
+
+void reset_ts_int_htbl(ts_int_htbl_t *table) {
+  MT_PROTECT_VOID(table->write_lock,
+		  reset_int_htbl(&table->htbl));
+}
+
+
+void ts_int_htbl_erase_record(ts_int_htbl_t *table, uint32_t k, int32_t v) {
+  MT_PROTECT_VOID(table->write_lock,
+		  int_htbl_erase_record(&table->htbl, k, v));
+}
+
+
+int32_t ts_int_htbl_find_obj(ts_int_htbl_t *table, const int_hobj_t *o) {
+  MT_PROTECT(int32_t, table->write_lock,
+	     int_htbl_find_obj(&table->htbl, o));
+}
+
+
+int32_t ts_int_htbl_get_obj(ts_int_htbl_t *table, const int_hobj_t *o) {
+  int32_t idx;
+  
+#ifdef THREAD_SAFE
+  get_yices_lock(&table->write_lock);
+#endif
+
+  idx = int_htbl_get_obj(&table->htbl, o);
+  
+#ifdef THREAD_SAFE
+  release_yices_lock(&table->write_lock);
+#endif
+
+  return idx;
+}
